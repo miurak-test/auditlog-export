@@ -2,10 +2,10 @@ name: terraform
   
 # main ブランチへのPull Request と Merge をトリガーに指定
 on:
-  push:
-    branches:
-      - main
-  pull_request:
+#   push:
+#     branches:
+#       - main
+#   pull_request:
   
 # 作業ディレクトリの指定
 defaults:
