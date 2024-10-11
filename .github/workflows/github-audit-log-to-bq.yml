@@ -46,7 +46,7 @@ jobs:
           echo "$response" > audit_logs.json
           
           # Pythonスクリプトをインラインで実行し、BigQueryにアップロード
-          python - <<EOF
+          python <<EOF
 import json
 import os
 from google.cloud import bigquery
