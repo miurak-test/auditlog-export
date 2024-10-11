@@ -16,8 +16,8 @@ jobs:
         name: 'Authenticate to Google Cloud'
         uses: 'google-github-actions/auth@v1'
         with:
-          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.SERVICE_ACCOUNT_EMAIL }}
+          workload_identity_provider: 'projects/55684806562/locations/global/workloadIdentityPools/gha-pool-git-export/providers/github'
+          service_account: 'git-audit-gha-sa@miurak.iam.gserviceaccount.com'
 
       # Python環境のセットアップとBigQuery Pythonクライアントのインストール
       - name: Set up Python environment
