@@ -5,6 +5,10 @@ on:
     - cron: '0 * * * *'  # 毎時実行
   workflow_dispatch:  # 手動での実行を有効化
 
+permissions:  # 必要な権限を設定
+  id-token: write
+  contents: read
+
 jobs:
   fetch-and-upload:
     runs-on: ubuntu-latest
