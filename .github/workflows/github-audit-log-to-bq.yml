@@ -1,0 +1,85 @@
+name: Fetch and Upload GitHub Audit Logs to BigQuery
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # 毎時実行
+
+jobs:
+  fetch-and-upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      # Workload Identity Federationを使用してGoogle Cloudに認証
+      - id: 'auth'
+        name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v1'
+        with:
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.SERVICE_ACCOUNT_EMAIL }}
+
+      # Python環境のセットアップとBigQuery Pythonクライアントのインストール
+      - name: Set up Python environment
+        run: |
+          python3 -m venv venv
+          . venv/bin/activate
+          pip install --upgrade pip
+          pip install google-cloud-bigquery requests
+
+      # GitHubの監査ログを取得してBigQueryにアップロード
+      - name: Fetch audit logs and upload to BigQuery
+        env:
+          GCP_PROJECT_ID: miurak
+          BQ_DATASET: test
+          BQ_TABLE: git_audit
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          . venv/bin/activate
+          
+          # GitHub APIを使用して監査ログを取得
+          echo "Fetching audit logs..."
+          response=$(curl -H "Authorization: token $GITHUB_TOKEN" \
+                        -H "Accept: application/vnd.github.v3+json" \
+                        "https://api.github.com/orgs/YOUR_ORG_NAME/audit-log")
+          
+          # レスポンスをファイルに保存
+          echo "$response" > audit_logs.json
+          
+          # Pythonスクリプトをインラインで実行し、BigQueryにアップロード
+          python - <<EOF
+import json
+import os
+from google.cloud import bigquery
+
+# BigQueryクライアントの設定
+client = bigquery.Client()
+
+# 環境変数からプロジェクトID、データセット、テーブルを取得
+project_id = os.environ['GCP_PROJECT_ID']
+dataset_id = os.environ['BQ_DATASET']
+table_id = os.environ['BQ_TABLE']
+table_ref = f"{project_id}.{dataset_id}.{table_id}"
+
+# 監査ログの読み込み
+with open('audit_logs.json', 'r') as f:
+    logs = json.load(f)
+
+# BigQueryに挿入するデータの整形
+rows_to_insert = [
+    {
+        "timestamp": log["@timestamp"],
+        "action": log["action"],
+        "actor": log["actor"],
+        "repository": log["repo"],
+        "org": log["org"]
+    }
+    for log in logs
+]
+
+# データをBigQueryに挿入
+errors = client.insert_rows_json(table_ref, rows_to_insert)
+if errors:
+    print("Errors occurred: ", errors)
+else:
+    print("Data uploaded successfully")
+EOF
