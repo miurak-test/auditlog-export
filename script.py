@@ -1,6 +1,7 @@
 import json
 import os
 from google.cloud import bigquery
+from google.api_core.exceptions import NotFound  # 修正ポイント
 
 # BigQueryクライアントの初期化
 client = bigquery.Client()
@@ -27,7 +28,7 @@ table = bigquery.Table(table_ref, schema=schema)
 try:
     client.get_table(table_ref)  # テーブルの存在を確認
     print(f"Table {table_ref} already exists.")
-except bigquery.NotFound:
+except NotFound:  # 修正ポイント
     print(f"Table {table_ref} not found. Creating a new one.")
     client.create_table(table)  # テーブルを作成
 
