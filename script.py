@@ -11,23 +11,43 @@ dataset_id = os.getenv("BQ_DATASET")
 table_id = os.getenv("BQ_TABLE")
 table_ref = f"{project_id}.{dataset_id}.{table_id}"
 
-# 監査ログをファイルから読み込み
+# スキーマの定義
+schema = [
+    bigquery.SchemaField("timestamp", "TIMESTAMP"),
+    bigquery.SchemaField("action", "STRING"),
+    bigquery.SchemaField("actor", "STRING"),
+    bigquery.SchemaField("repository", "STRING"),
+    bigquery.SchemaField("org", "STRING"),
+]
+
+# データセットとテーブルの初期化
+dataset_ref = client.dataset(dataset_id)
+table = bigquery.Table(table_ref, schema=schema)
+
+try:
+    client.get_table(table_ref)  # テーブルの存在を確認
+    print(f"Table {table_ref} already exists.")
+except bigquery.NotFound:
+    print(f"Table {table_ref} not found. Creating a new one.")
+    client.create_table(table)  # テーブルを作成
+
+# 監査ログを読み込む
 with open("audit_logs.json", "r") as f:
     logs = json.load(f)
 
-# データを整形してBigQueryに挿入する準備
+# データの整形
 rows_to_insert = [
     {
         "timestamp": log.get("@timestamp"),
         "action": log.get("action"),
         "actor": log.get("actor"),
         "repository": log.get("repo"),
-        "org": log.get("org")
+        "org": log.get("org"),
     }
     for log in logs if isinstance(log, dict)
 ]
 
-# データが存在する場合のみBigQueryに挿入
+# データを挿入
 if rows_to_insert:
     errors = client.insert_rows_json(table_ref, rows_to_insert)
     if errors:
