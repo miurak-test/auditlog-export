@@ -30,8 +30,6 @@ def create_table_if_not_exists(client, table_ref):
         table = bigquery.Table(table_ref, schema=schema)
         client.create_table(table)
         logging.info(f"Table {table_ref} created.")
-
-        # リトライロジックで反映を待つ
         wait_for_table(client, table_ref)
 
 def wait_for_table(client, table_ref, retries=5, delay=30):
@@ -46,7 +44,7 @@ def wait_for_table(client, table_ref, retries=5, delay=30):
             logging.warning(f"Table {table_ref} not available yet. Waiting {delay} seconds...")
             time.sleep(delay)
     logging.error(f"Table {table_ref} is not available after {retries} attempts.")
-    sys.exit(1)  # テーブルが取得できない場合はエラーで終了
+    sys.exit(1)
 
 def load_logs(file_path):
     """監査ログの読み込み"""
@@ -72,22 +70,23 @@ def transform_logs(logs):
         for log in logs if isinstance(log, dict)
     ]
 
-def insert_rows_to_bigquery(client, table_ref, rows):
-    """BigQueryにデータを挿入"""
-    if not rows:
-        logging.info("No data to insert.")
-        return
-
-    try:
-        errors = client.insert_rows_json(table_ref, rows)
-        if errors:
-            logging.error(f"Errors occurred during insertion: {errors}")
-            sys.exit(1)
-        else:
-            logging.info("Data uploaded successfully.")
-    except GoogleAPIError as e:
-        logging.error(f"Failed to upload data to BigQuery: {e}")
-        sys.exit(1)
+def insert_rows_with_retry(client, table_ref, rows, retries=5, delay=10):
+    """BigQueryにデータをリトライ付きで挿入"""
+    for attempt in range(retries):
+        try:
+            logging.info(f"Inserting rows into {table_ref} (Attempt {attempt + 1}/{retries})...")
+            errors = client.insert_rows_json(table_ref, rows)
+            if errors:
+                logging.error(f"Errors occurred during insertion: {errors}")
+                time.sleep(delay)
+            else:
+                logging.info("Data uploaded successfully.")
+                return
+        except GoogleAPIError as e:
+            logging.error(f"Failed to upload data to BigQuery: {e}")
+            time.sleep(delay)
+    logging.error(f"Failed to insert rows into {table_ref} after {retries} attempts.")
+    sys.exit(1)
 
 def main():
     """メイン処理"""
@@ -97,13 +96,12 @@ def main():
     table_ref = f"{project_id}.{dataset_id}.{table_id}"
 
     client = get_bigquery_client()
-
     create_table_if_not_exists(client, table_ref)
 
     logs = load_logs("app/audit_logs.json")
     rows_to_insert = transform_logs(logs)
 
-    insert_rows_to_bigquery(client, table_ref, rows_to_insert)
+    insert_rows_with_retry(client, table_ref, rows_to_insert)
 
 if __name__ == "__main__":
     main()
