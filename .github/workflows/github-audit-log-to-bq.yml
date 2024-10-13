@@ -1,51 +1,49 @@
 name: Fetch and Upload GitHub Audit Logs to BigQuery
 
 on:
-  workflow_dispatch:  # 手動実行を有効化
+  workflow_dispatch:  # 手動での実行を有効化
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   fetch-and-upload:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v3
 
+      - id: 'auth'
+        name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v1'
+        with:
+          workload_identity_provider: 'projects/55684806562/locations/global/workloadIdentityPools/gha-pool-git-export/providers/github'
+          service_account: 'git-audit-gha-sa@miurak.iam.gserviceaccount.com'
+
       - name: Set up Python environment
         run: |
-          # 仮想環境の作成と有効化
           python3 -m venv venv
-          ls -l venv  # デバッグ用: venvディレクトリの確認
           . venv/bin/activate
           pip install --upgrade pip
           pip install google-cloud-bigquery requests
 
-      - name: Download previous timestamp artifact
-        id: download-timestamp
-        run: |
-          mkdir -p artifacts
-          gh run download --name last_run_timestamp --dir artifacts || echo "1970-01-01T00:00:00Z" > artifacts/last_run_timestamp.txt
-
-      - name: Fetch logs from GitHub
+      - name: Fetch audit logs and upload to BigQuery
         env:
+          GCP_PROJECT_ID: miurak
+          BQ_DATASET: test
+          BQ_TABLE: git_audit
           PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
         run: |
           . venv/bin/activate
-          current_time=$(date --utc --iso-8601=seconds)
-          last_run=$(cat artifacts/last_run_timestamp.txt)
+
+          # GitHub APIを使用して監査ログを取得
+          echo "Fetching audit logs..."
           response=$(curl -H "Authorization: token $PERSONAL_ACCESS_TOKEN" \
                         -H "Accept: application/vnd.github.v3+json" \
-                        "https://api.github.com/orgs/miurak-test/audit-log?after=$last_run")
-          mkdir -p app
+                        "https://api.github.com/orgs/miurak-test/audit-log")
+
+          # `app`ディレクトリにレスポンスを保存
           echo "$response" > app/audit_logs.json
-          echo "$current_time" > artifacts/last_run_timestamp.txt
 
-      - name: Upload new timestamp artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: last_run_timestamp
-          path: artifacts/last_run_timestamp.txt
-
-      - name: Run script to upload logs to BigQuery
-        run: |
-          . venv/bin/activate
+          # `app`ディレクトリ内のPythonスクリプトを実行
           python3 app/script.py
