@@ -20,13 +20,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4  # 最新バージョンに更新
 
-      # google-github-actions/auth@v2 に更新
+      # google-github-actions/auth@v2 に更新、retriesフィールドを削除
       - id: 'auth'
         uses: 'google-github-actions/auth@v2'
         with:
           workload_identity_provider: 'projects/55684806562/locations/global/workloadIdentityPools/gha-pool-git-export/providers/github'
           service_account: 'git-audit-gha-sa@miurak.iam.gserviceaccount.com'
-          retries: 3
 
       - name: Clear old virtual environment
         run: |
