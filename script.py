@@ -1,7 +1,7 @@
 import json
 import os
 from google.cloud import bigquery
-from google.api_core.exceptions import NotFound  # 修正ポイント
+from google.api_core.exceptions import NotFound
 
 # BigQueryクライアントの初期化
 client = bigquery.Client()
@@ -21,16 +21,15 @@ schema = [
     bigquery.SchemaField("org", "STRING"),
 ]
 
-# データセットとテーブルの初期化
-dataset_ref = client.dataset(dataset_id)
-table = bigquery.Table(table_ref, schema=schema)
-
+# テーブルが存在しない場合に作成
 try:
     client.get_table(table_ref)  # テーブルの存在を確認
     print(f"Table {table_ref} already exists.")
-except NotFound:  # 修正ポイント
+except NotFound:
     print(f"Table {table_ref} not found. Creating a new one.")
+    table = bigquery.Table(table_ref, schema=schema)
     client.create_table(table)  # テーブルを作成
+    print(f"Table {table_ref} created.")
 
 # 監査ログを読み込む
 with open("audit_logs.json", "r") as f:
@@ -39,7 +38,7 @@ with open("audit_logs.json", "r") as f:
 # データの整形
 rows_to_insert = [
     {
-        "timestamp": log.get("@timestamp"),
+        "timestamp": log.get("@timestamp") / 1000,  # ミリ秒から秒に変換
         "action": log.get("action"),
         "actor": log.get("actor"),
         "repository": log.get("repo"),
