@@ -3,7 +3,7 @@ name: Fetch and Upload GitHub Audit Logs to BigQuery
 on:
   workflow_dispatch:  # 手動での実行を有効化
 
-permissions:  # 必要な権限を設定
+permissions:
   id-token: write
   contents: read
 
@@ -13,7 +13,6 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      # Workload Identity Federationを使用してGoogle Cloudに認証
       - id: 'auth'
         name: 'Authenticate to Google Cloud'
         uses: 'google-github-actions/auth@v1'
@@ -21,7 +20,6 @@ jobs:
           workload_identity_provider: 'projects/55684806562/locations/global/workloadIdentityPools/gha-pool-git-export/providers/github'
           service_account: 'git-audit-gha-sa@miurak.iam.gserviceaccount.com'
 
-      # Python環境のセットアップとBigQuery Pythonクライアントのインストール
       - name: Set up Python environment
         run: |
           python3 -m venv venv
@@ -29,13 +27,12 @@ jobs:
           pip install --upgrade pip
           pip install google-cloud-bigquery requests
 
-      # 監査ログの取得とBigQueryへのアップロード
       - name: Fetch audit logs and upload to BigQuery
         env:
           GCP_PROJECT_ID: miurak
           BQ_DATASET: test
           BQ_TABLE: git_audit
-          PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}  # シークレットからトークンを取得
+          PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
         run: |
           . venv/bin/activate
 
@@ -45,12 +42,8 @@ jobs:
                         -H "Accept: application/vnd.github.v3+json" \
                         "https://api.github.com/orgs/miurak-test/audit-log")
 
-          # レスポンスをファイルに保存
-          echo "$response" > audit_logs.json
+          # `app`ディレクトリにレスポンスを保存
+          echo "$response" > app/audit_logs.json
 
-          # レスポンス内容を確認（デバッグ用）
-          echo "Fetched logs:"
-          cat audit_logs.json
-
-          # Pythonスクリプトを実行してBigQueryにデータをアップロード
-          python3 script.py
+          # `app`ディレクトリ内のPythonスクリプトを実行
+          python3 app/script.py

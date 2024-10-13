@@ -23,16 +23,16 @@ schema = [
 
 # テーブルが存在しない場合に作成
 try:
-    client.get_table(table_ref)  # テーブルの存在を確認
+    client.get_table(table_ref)
     print(f"Table {table_ref} already exists.")
 except NotFound:
     print(f"Table {table_ref} not found. Creating a new one.")
     table = bigquery.Table(table_ref, schema=schema)
-    client.create_table(table)  # テーブルを作成
+    client.create_table(table)
     print(f"Table {table_ref} created.")
 
-# 監査ログを読み込む
-with open("audit_logs.json", "r") as f:
+# `app`ディレクトリ内の`audit_logs.json`を読み込む
+with open("app/audit_logs.json", "r") as f:
     logs = json.load(f)
 
 # データの整形
