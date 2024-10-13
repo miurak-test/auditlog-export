@@ -1,10 +1,12 @@
 import json
 import logging
 import os
+import sys
+import time
 from google.cloud import bigquery
 from google.api_core.exceptions import NotFound, GoogleAPIError
 
-# ログの設定
+# ログ設定
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
 def get_bigquery_client():
@@ -29,6 +31,10 @@ def create_table_if_not_exists(client, table_ref):
         client.create_table(table)
         logging.info(f"Table {table_ref} created.")
 
+        # テーブル作成直後のAPI遅延対策で30秒待機
+        logging.info("Waiting for 30 seconds to ensure the table is ready...")
+        time.sleep(30)
+
 def load_logs(file_path):
     """監査ログの読み込み"""
     try:
@@ -38,13 +44,13 @@ def load_logs(file_path):
         return logs
     except (FileNotFoundError, json.JSONDecodeError) as e:
         logging.error(f"Failed to load logs: {e}")
-        return []
+        sys.exit(1)  # エラー時に終了
 
 def transform_logs(logs):
     """監査ログをBigQuery用の形式に変換"""
     return [
         {
-            "timestamp": log.get("@timestamp") / 1000,  # UNIXタイムの変換
+            "timestamp": log.get("@timestamp") / 1000,  # UNIXタイムを秒に変換
             "action": log.get("action"),
             "actor": log.get("actor"),
             "repository": log.get("repo"),
@@ -63,10 +69,12 @@ def insert_rows_to_bigquery(client, table_ref, rows):
         errors = client.insert_rows_json(table_ref, rows)
         if errors:
             logging.error(f"Errors occurred during insertion: {errors}")
+            sys.exit(1)  # エラー時に終了
         else:
             logging.info("Data uploaded successfully.")
     except GoogleAPIError as e:
         logging.error(f"Failed to upload data to BigQuery: {e}")
+        sys.exit(1)  # エラー時に終了
 
 def main():
     """メイン処理"""
