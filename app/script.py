@@ -29,6 +29,9 @@ except NotFound:
     client.create_table(table)
     print(f"Table {table_ref} created.")
 
+    # クライアントを再初期化
+    client = bigquery.Client()
+
 # 監査ログの読み込み
 with open("app/audit_logs.json", "r") as f:
     logs = json.load(f)
@@ -36,7 +39,7 @@ with open("app/audit_logs.json", "r") as f:
 # データの整形とアップロード
 rows_to_insert = [
     {
-        "timestamp": log.get("@timestamp") / 1000,  # UNIXタイムを変換
+        "timestamp": log.get("@timestamp") / 1000,  # UNIXタイムの変換
         "action": log.get("action"),
         "actor": log.get("actor"),
         "repository": log.get("repo"),
@@ -51,6 +54,6 @@ if rows_to_insert:
     if errors:
         print(f"Errors occurred: {errors}")
     else:
-        print("Data uploaded successfully")
+        print("Data uploaded successfully.")
 else:
     print("No data to insert.")
