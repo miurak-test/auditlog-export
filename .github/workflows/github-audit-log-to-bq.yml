@@ -2,8 +2,8 @@ name: Fetch and Upload GitHub Audit Logs to BigQuery
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # 毎日午前0時に実行
-  workflow_dispatch:  # 手動実行も可能に
+    - cron: '0 0 * * *'  # 毎日0時に実行
+  workflow_dispatch:  # 手動での実行も可能
 
 permissions:
   id-token: write
@@ -18,9 +18,8 @@ jobs:
       BQ_TABLE: git_audit
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4  # 最新バージョンに更新
 
-      # 認証を再試行可能にする
       - id: 'auth'
         uses: 'google-github-actions/auth@v1'
         with:
@@ -54,27 +53,21 @@ jobs:
         env:
           PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
         run: |
-          . venv/bin/activate  # 仮想環境の有効化
-          
-          # 現在のUTC日時を取得
+          . venv/bin/activate
           current_time=$(date --utc --iso-8601=seconds)
-          echo "Current timestamp: $current_time"
+          echo "$current_time" > artifacts/last_run_timestamp.txt
 
-          # 前回の取得日時から現在までの監査ログを取得
-          echo "Fetching logs from $last_run to $current_time"
+          # GitHub APIから監査ログを取得
           response=$(curl -H "Authorization: token $PERSONAL_ACCESS_TOKEN" \
                         -H "Accept: application/vnd.github.v3+json" \
                         "https://api.github.com/orgs/miurak-test/audit-log?after=$last_run")
 
-          # ログを保存
+          # 取得したログを保存
           mkdir -p app
           echo "$response" > app/audit_logs.json
 
-          # 次回のために現在の日時を保存
-          echo "$current_time" > artifacts/last_run_timestamp.txt
-
       - name: Upload new timestamp artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4  # 最新バージョンに更新
         with:
           name: last_run_timestamp
           path: artifacts/last_run_timestamp.txt
