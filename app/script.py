@@ -31,9 +31,22 @@ def create_table_if_not_exists(client, table_ref):
         client.create_table(table)
         logging.info(f"Table {table_ref} created.")
 
-        # テーブル作成直後のAPI遅延対策で30秒待機
-        logging.info("Waiting for 30 seconds to ensure the table is ready...")
-        time.sleep(30)
+        # リトライロジックで反映を待つ
+        wait_for_table(client, table_ref)
+
+def wait_for_table(client, table_ref, retries=5, delay=30):
+    """テーブルが使用可能になるまで待機し、リトライする"""
+    for attempt in range(retries):
+        try:
+            logging.info(f"Checking if table {table_ref} is available (Attempt {attempt + 1}/{retries})...")
+            client.get_table(table_ref)
+            logging.info(f"Table {table_ref} is now available.")
+            return
+        except NotFound:
+            logging.warning(f"Table {table_ref} not available yet. Waiting {delay} seconds...")
+            time.sleep(delay)
+    logging.error(f"Table {table_ref} is not available after {retries} attempts.")
+    sys.exit(1)  # テーブルが取得できない場合はエラーで終了
 
 def load_logs(file_path):
     """監査ログの読み込み"""
@@ -44,13 +57,13 @@ def load_logs(file_path):
         return logs
     except (FileNotFoundError, json.JSONDecodeError) as e:
         logging.error(f"Failed to load logs: {e}")
-        sys.exit(1)  # エラー時に終了
+        sys.exit(1)
 
 def transform_logs(logs):
     """監査ログをBigQuery用の形式に変換"""
     return [
         {
-            "timestamp": log.get("@timestamp") / 1000,  # UNIXタイムを秒に変換
+            "timestamp": log.get("@timestamp") / 1000,
             "action": log.get("action"),
             "actor": log.get("actor"),
             "repository": log.get("repo"),
@@ -69,12 +82,12 @@ def insert_rows_to_bigquery(client, table_ref, rows):
         errors = client.insert_rows_json(table_ref, rows)
         if errors:
             logging.error(f"Errors occurred during insertion: {errors}")
-            sys.exit(1)  # エラー時に終了
+            sys.exit(1)
         else:
             logging.info("Data uploaded successfully.")
     except GoogleAPIError as e:
         logging.error(f"Failed to upload data to BigQuery: {e}")
-        sys.exit(1)  # エラー時に終了
+        sys.exit(1)
 
 def main():
     """メイン処理"""
@@ -85,14 +98,11 @@ def main():
 
     client = get_bigquery_client()
 
-    # テーブルの存在確認と作成
     create_table_if_not_exists(client, table_ref)
 
-    # 監査ログの読み込みと変換
     logs = load_logs("app/audit_logs.json")
     rows_to_insert = transform_logs(logs)
 
-    # BigQueryにデータを挿入
     insert_rows_to_bigquery(client, table_ref, rows_to_insert)
 
 if __name__ == "__main__":
