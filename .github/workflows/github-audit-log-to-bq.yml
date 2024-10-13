@@ -1,59 +1,42 @@
 name: Fetch and Upload GitHub Audit Logs to BigQuery
 
 on:
-  schedule:
-    - cron: '0 0 * * *'  # 毎日午前0時に実行
-  workflow_dispatch:  # 手動実行も可能
-
-permissions:
-  id-token: write
-  contents: read
+  workflow_dispatch:  # 手動実行を有効化
 
 jobs:
   fetch-and-upload:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v3
 
-      - id: 'auth'
-        name: 'Authenticate to Google Cloud'
-        uses: 'google-github-actions/auth@v1'
-        with:
-          workload_identity_provider: 'projects/55684806562/locations/global/workloadIdentityPools/gha-pool-git-export/providers/github'
-          service_account: 'git-audit-gha-sa@miurak.iam.gserviceaccount.com'
+      - name: Set up Python environment
+        run: |
+          # 仮想環境の作成と有効化
+          python3 -m venv venv
+          ls -l venv  # デバッグ用: venvディレクトリの確認
+          . venv/bin/activate
+          pip install --upgrade pip
+          pip install google-cloud-bigquery requests
 
       - name: Download previous timestamp artifact
         id: download-timestamp
         run: |
-          # アーティファクトから前回の実行日時を取得
           mkdir -p artifacts
           gh run download --name last_run_timestamp --dir artifacts || echo "1970-01-01T00:00:00Z" > artifacts/last_run_timestamp.txt
-
-      - name: Read previous timestamp
-        run: |
-          # 前回の実行日時を読み込む
-          last_run=$(cat artifacts/last_run_timestamp.txt)
-          echo "Last fetch timestamp: $last_run"
 
       - name: Fetch logs from GitHub
         env:
           PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
         run: |
-          # 現在のUTC日時を取得
+          . venv/bin/activate
           current_time=$(date --utc --iso-8601=seconds)
-          echo "Current timestamp: $current_time"
-
-          # GitHub APIで監査ログを取得
-          echo "Fetching logs from $last_run to $current_time"
+          last_run=$(cat artifacts/last_run_timestamp.txt)
           response=$(curl -H "Authorization: token $PERSONAL_ACCESS_TOKEN" \
                         -H "Accept: application/vnd.github.v3+json" \
                         "https://api.github.com/orgs/miurak-test/audit-log?after=$last_run")
-
-          # ログを保存
           mkdir -p app
           echo "$response" > app/audit_logs.json
-
-          # 現在の日時を次回のために保存
           echo "$current_time" > artifacts/last_run_timestamp.txt
 
       - name: Upload new timestamp artifact
