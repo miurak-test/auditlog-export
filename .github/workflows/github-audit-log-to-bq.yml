@@ -59,7 +59,7 @@ jobs:
       # GitHubの監査ログを取得し、次回の実行に向けてタイムスタンプを更新
       - name: Fetch audit logs from GitHub
         env:
-          PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}  # GitHubのアクセストークン
+          PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN_2 }}  # GitHubのアクセストークン
         run: |
           . venv/bin/activate  # 仮想環境を有効化
           current_time=$(date --utc --iso-8601=seconds)  # 現在のUTC時刻を取得
