@@ -6,72 +6,83 @@ on:
   workflow_dispatch:  # 手動実行も可能に
 
 permissions:
-  id-token: write
-  contents: read
+  id-token: write  # Google Cloudの認証用トークンの発行を許可
+  contents: read   # リポジトリの内容に読み取りアクセスを付与
 
 jobs:
   fetch-and-upload:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # 最新のUbuntu環境で実行
+
     env:
-      GCP_PROJECT_ID: miurak
-      BQ_DATASET: test
-      BQ_TABLE: git_audit
+      GCP_PROJECT_ID: miurak  # GCPプロジェクトID
+      BQ_DATASET: test         # BigQueryデータセット名
+      BQ_TABLE: git_audit      # BigQueryテーブル名
 
     steps:
-      - uses: actions/checkout@v4  # 最新バージョンに更新
+      # リポジトリの内容をチェックアウトする（ソースコードを取得）
+      - uses: actions/checkout@v4  # 最新バージョンを使用
 
+      # Google Cloudに認証するための設定を実行（Workload Identity Federationを使用）
       - id: 'auth'
-        uses: 'google-github-actions/auth@v2'
+        uses: 'google-github-actions/auth@v2'  # Node.js 20対応の最新バージョンを使用
         with:
           workload_identity_provider: 'projects/55684806562/locations/global/workloadIdentityPools/gha-pool-git-export/providers/github'
-          service_account: 'git-audit-gha-sa@miurak.iam.gserviceaccount.com'
+          service_account: 'git-audit-gha-sa@miurak.iam.gserviceaccount.com'  # 使用するサービスアカウント
 
+      # 古い仮想環境（venv）が存在する場合は削除
       - name: Clear old virtual environment
-        run: rm -rf venv
+        run: |
+          rm -rf venv
 
+      # Pythonの仮想環境をセットアップし、必要なライブラリをインストール
       - name: Set up Python environment
         run: |
-          python3 -m venv venv
-          . venv/bin/activate
-          pip install --upgrade pip
-          pip install google-cloud-bigquery requests
+          python3 -m venv venv  # 仮想環境を作成
+          . venv/bin/activate  # 仮想環境を有効化
+          pip install --upgrade pip  # pipを最新バージョンに更新
+          pip install google-cloud-bigquery requests  # 必要なライブラリをインストール
 
+      # 前回の実行時刻を示すタイムスタンプをダウンロード
       - name: Download previous timestamp artifact
         id: download-timestamp
         run: |
-          mkdir -p artifacts
+          mkdir -p artifacts  # アーティファクト用のディレクトリを作成
+          # タイムスタンプのアーティファクトをダウンロード。なければ1970年1月1日に設定
           gh run download --name last_run_timestamp --dir artifacts || echo "1970-01-01T00:00:00Z" > artifacts/last_run_timestamp.txt
 
+      # 前回実行時のタイムスタンプを読み込み、変数に格納
       - name: Read previous timestamp
         run: |
           last_run=$(cat artifacts/last_run_timestamp.txt)
-          echo "Last fetch timestamp: $last_run"
+          echo "Last fetch timestamp: $last_run"  # 読み込んだタイムスタンプを出力
 
+      # GitHubの監査ログを取得し、次回の実行に向けてタイムスタンプを更新
       - name: Fetch audit logs from GitHub
         env:
-          PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN_2 }}
+          PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}  # GitHubのアクセストークン
         run: |
-          . venv/bin/activate
-          current_time=$(date --utc --iso-8601=seconds)
-          echo "$current_time" > artifacts/last_run_timestamp.txt
+          . venv/bin/activate  # 仮想環境を有効化
+          current_time=$(date --utc --iso-8601=seconds)  # 現在のUTC時刻を取得
+          echo "$current_time" > artifacts/last_run_timestamp.txt  # 新しいタイムスタンプを保存
 
-          # GitHub APIから監査ログを取得
-          response=$(curl -s -H "Authorization: token $PERSONAL_ACCESS_TOKEN" \
-                           -H "Accept: application/vnd.github.v3+json" \
-                           "https://api.github.com/orgs/miurak-test/audit-log?after=$last_run")
+          # GitHub APIを使用して監査ログを取得（前回実行後のログを取得）
+          response=$(curl -H "Authorization: token $PERSONAL_ACCESS_TOKEN" \
+                        -H "Accept: application/vnd.github.v3+json" \
+                        "https://api.github.com/orgs/miurak-test/audit-log?after=$last_run")
 
-          echo "API Response: $response"  # レスポンスの中身を出力
+          # 取得した監査ログを`app`ディレクトリに保存
+          mkdir -p app  # ディレクトリを作成
+          echo "$response" > app/audit_logs.json  # ログをJSONファイルに保存
 
-          mkdir -p app
-          echo "$response" > app/audit_logs.json
-
+      # 更新されたタイムスタンプをアーティファクトとしてアップロード
       - name: Upload new timestamp artifact
-        uses: actions/upload-artifact@v4  # 最新バージョンに更新
+        uses: actions/upload-artifact@v4  # 最新バージョンを使用
         with:
-          name: last_run_timestamp
-          path: artifacts/last_run_timestamp.txt
+          name: last_run_timestamp  # アーティファクトの名前
+          path: artifacts/last_run_timestamp.txt  # 保存するファイルのパス
 
+      # Pythonスクリプトを実行し、監査ログをBigQueryにアップロード
       - name: Run script to upload logs to BigQuery
         run: |
-          . venv/bin/activate
-          python3 app/script.py
+          . venv/bin/activate  # 仮想環境を有効化
+          python3 app/script.py  # Pythonスクリプトを実行
