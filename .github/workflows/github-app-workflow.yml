@@ -1,0 +1,37 @@
+name: Fetch Audit Logs with GitHub App and Upload to BigQuery
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # 毎日午前0時に実行
+  workflow_dispatch:  # 手動での実行も可能に
+
+permissions:
+  contents: read
+
+jobs:
+  fetch-and-upload:
+    runs-on: ubuntu-latest
+
+    env:
+      GCP_PROJECT_ID: miurak  # GCPプロジェクトID
+      BQ_DATASET: test         # BigQueryデータセット名
+      BQ_TABLE: git_audit2     # BigQueryテーブル名
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python environment
+        run: |
+          python3 -m venv venv
+          . venv/bin/activate
+          pip install --upgrade pip
+          pip install requests cryptography google-cloud-bigquery
+
+      - name: Run script with GitHub App authentication and upload to BigQuery
+        env:
+          APP_ID: ${{ secrets.APP_ID }}
+          APP_INSTALLATION_ID: ${{ secrets.APP_INSTALLATION_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+        run: |
+          . venv/bin/activate
+          python app/script2.py

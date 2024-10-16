@@ -1,0 +1,1 @@
+{"Modules":[{"Key":"","Source":"","Dir":"."},{"Key":"api","Source":"../../modules/api","Dir":"../../modules/api"},{"Key":"bigquery","Source":"../../modules/bigquery","Dir":"../../modules/bigquery"},{"Key":"iam","Source":"../../modules/iam","Dir":"../../modules/iam"},{"Key":"workload_identity","Source":"../../modules/workload_identity","Dir":"../../modules/workload_identity"}]}
