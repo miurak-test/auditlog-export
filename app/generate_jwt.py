@@ -3,35 +3,33 @@ import sys
 import jwt
 import time
 
-# 環境変数から App ID と秘密鍵を取得
+# 環境変数からApp IDと秘密鍵を取得
 app_id = os.getenv("APP_ID")
-private_key = os.getenv("PRIVATE_KEY")
+private_key = os.getenv("APP_PRIVATE_KEY")
 
-# 環境変数が正しく取得できているか確認
+# 環境変数が設定されているか確認
 if not app_id:
     print("Error: APP_ID environment variable not found.")
     sys.exit(1)
 
 if not private_key:
-    print("Error: PRIVATE_KEY environment variable not found.")
+    print("Error: APP_PRIVATE_KEY environment variable not found.")
     sys.exit(1)
 
-# 改行を復元
+# 改行文字を復元
 private_key = private_key.replace("\\n", "\n")
 
-# JWTペイロードの設定
+# JWT ペイロードを設定
 payload = {
-    # JWTの発行時間と有効期限（10分間）
-    "iat": int(time.time()),  # 発行時間
-    "exp": int(time.time()) + (10 * 60),  # 有効期限（10分）
-    "iss": app_id  # App ID
+    "iat": int(time.time()),  # 発行時刻
+    "exp": int(time.time()) + (10 * 60),  # 有効期限は10分後
+    "iss": app_id  # 発行者はApp ID
 }
 
-# JWTトークンの生成
+# JWT トークンを生成
 try:
     jwt_token = jwt.encode(payload, private_key, algorithm="RS256")
-    print("JWT token generated successfully.")
-    print(jwt_token)
+    print(jwt_token)  # 標準出力にトークンを表示
 except Exception as e:
     print(f"Failed to generate JWT token: {e}")
     sys.exit(1)
