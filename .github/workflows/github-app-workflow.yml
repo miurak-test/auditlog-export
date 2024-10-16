@@ -1,28 +1,26 @@
-name: Fetch Audit Logs using GitHub App and Upload to BigQuery
+name: Generate JWT and Upload Logs to BigQuery
 
 on:
-  schedule:
-    - cron: '0 0 * * *'  # 毎日午前0時に実行
-  workflow_dispatch:  # 手動実行も可能に
+  workflow_dispatch:  # 手動実行を許可
 
 permissions:
-  id-token: write  # GCP認証用トークンの発行を許可
-  contents: read   # リポジトリの内容に読み取りアクセス
+  id-token: write
+  contents: read
 
 jobs:
   fetch-and-upload:
-    runs-on: ubuntu-latest  # 最新のUbuntu環境で実行
+    runs-on: ubuntu-latest
 
     env:
-      GCP_PROJECT_ID: miurak  # GCPプロジェクトID
-      BQ_DATASET: test         # BigQueryデータセット名
-      BQ_TABLE: git_audit2     # BigQueryテーブル名
+      GCP_PROJECT_ID: miurak
+      BQ_DATASET: test
+      BQ_TABLE: git_audit2
 
     steps:
-      - uses: actions/checkout@v4  # ソースコードを取得
+      - uses: actions/checkout@v4
 
       - id: 'auth'
-        uses: 'google-github-actions/auth@v2'  # Workload Identity FederationによるGCP認証
+        uses: 'google-github-actions/auth@v2'
         with:
           workload_identity_provider: 'projects/55684806562/locations/global/workloadIdentityPools/gha-pool-git-export/providers/github'
           service_account: 'git-audit-gha-sa@miurak.iam.gserviceaccount.com'
@@ -36,48 +34,26 @@ jobs:
           python3 -m venv venv
           . venv/bin/activate
           pip install --upgrade pip
-          pip install google-cloud-bigquery requests PyJWT cryptography
+          pip install google-cloud-bigquery requests PyJWT
 
-      - name: Generate JWT Token using Python Script
+      - name: Generate JWT token
         env:
           APP_ID: ${{ secrets.APP_ID }}
-          PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
         run: |
           . venv/bin/activate
-          python3 app/generate_jwt.py  # JWTトークン生成スクリプトを実行
+          python3 app/generate_jwt.py > jwt_token.txt
 
-      - name: Download previous timestamp artifact
-        id: download-timestamp
-        run: |
-          mkdir -p artifacts
-          gh run download --name last_run_timestamp --dir artifacts || echo "1970-01-01T00:00:00Z" > artifacts/last_run_timestamp.txt
-
-      - name: Read previous timestamp
-        run: |
-          last_run=$(cat artifacts/last_run_timestamp.txt)
-          echo "Last fetch timestamp: $last_run"
-
-      - name: Fetch audit logs from GitHub App
-        env:
-          INSTALLATION_ID: ${{ secrets.APP_INSTALLATION_ID }}
-          ACCESS_TOKEN: $(cat artifacts/access_token.txt)  # トークンを読み込む
+      - name: Fetch audit logs using JWT token
         run: |
           . venv/bin/activate
-          current_time=$(date --utc --iso-8601=seconds)
-          echo "$current_time" > artifacts/last_run_timestamp.txt
-
-          response=$(curl -H "Authorization: token $ACCESS_TOKEN" \
+          jwt_token=$(cat jwt_token.txt)
+          response=$(curl -H "Authorization: Bearer $jwt_token" \
                         -H "Accept: application/vnd.github.v3+json" \
-                        "https://api.github.com/orgs/miurak-test/audit-log?after=$last_run")
+                        "https://api.github.com/orgs/miurak-test/audit-log")
 
           mkdir -p app
           echo "$response" > app/audit_logs.json
-
-      - name: Upload new timestamp artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: last_run_timestamp
-          path: artifacts/last_run_timestamp.txt
 
       - name: Run script to upload logs to BigQuery
         run: |
