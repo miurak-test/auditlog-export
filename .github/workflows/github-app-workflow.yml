@@ -6,34 +6,31 @@ on:
   workflow_dispatch:  # 手動実行も可能に
 
 permissions:
-  id-token: write  # Google Cloud認証用トークン
-  contents: read   # リポジトリの読み取りアクセス
+  id-token: write  
+  contents: read  
 
 jobs:
   fetch-and-upload:
     runs-on: ubuntu-latest
 
     env:
-      GCP_PROJECT_ID: miurak  # GCPプロジェクトID
-      BQ_DATASET: test         # BigQueryデータセット名
-      BQ_TABLE: git_audit2     # BigQueryテーブル名
+      GCP_PROJECT_ID: miurak
+      BQ_DATASET: test
+      BQ_TABLE: git_audit2
 
     steps:
-      # リポジトリの内容を取得
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4  
 
-      # Google Cloud認証
       - id: 'auth'
         uses: 'google-github-actions/auth@v2'
         with:
           workload_identity_provider: 'projects/55684806562/locations/global/workloadIdentityPools/gha-pool-git-export/providers/github'
           service_account: 'git-audit-gha-sa@miurak.iam.gserviceaccount.com'
 
-      # 古い仮想環境の削除
       - name: Clear old virtual environment
-        run: rm -rf venv
+        run: |
+          rm -rf venv
 
-      # Python環境のセットアップ
       - name: Set up Python environment
         run: |
           python3 -m venv venv
@@ -41,44 +38,15 @@ jobs:
           pip install --upgrade pip
           pip install google-cloud-bigquery requests PyJWT
 
-      # JWTトークンの生成
-      - name: Generate JWT token
-        env:
-          APP_ID: ${{ secrets.APP_ID }}
-          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+      - name: Generate JWT Token
         run: |
           . venv/bin/activate
           python3 app/generate_jwt.py > jwt_token.txt
 
-      # GitHub監査ログの取得
-      - name: Fetch audit logs from GitHub
-        env:
-          APP_INSTALLATION_ID: ${{ secrets.APP_INSTALLATION_ID }}
+      - name: Display JWT Token for Debugging
         run: |
-          . venv/bin/activate
-          jwt_token=$(cat jwt_token.txt)
+          cat jwt_token.txt
 
-          # アクセストークンの取得
-          access_token_response=$(curl -s \
-            -H "Authorization: Bearer $jwt_token" \
-            -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/app/installations/${{ secrets.APP_INSTALLATION_ID }}/access_tokens)
-
-          # アクセストークンの抽出
-          access_token=$(echo "$access_token_response" | jq -r '.token')
-
-          # 監査ログを取得
-          response=$(curl -s \
-            -H "Authorization: token $access_token" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/orgs/miurak-test/audit-log")
-
-          # 取得したログを保存
-          mkdir -p app
-          echo "$response" > app/audit_logs.json
-
-      # BigQueryへのアップロード
-      - name: Run script to upload logs to BigQuery
+      - name: Save Private Key to File (Optional Debugging)
         run: |
-          . venv/bin/activate
-          python3 app/script2.py
+          echo "${{ secrets.APP_PRIVATE_KEY }}" > app/private-key.pem
