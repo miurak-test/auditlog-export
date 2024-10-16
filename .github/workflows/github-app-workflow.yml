@@ -6,47 +6,77 @@ on:
   workflow_dispatch:  # 手動実行も可能に
 
 permissions:
-  id-token: write  
-  contents: read  
+  id-token: write  # Google Cloudの認証用トークン
+  contents: read  # リポジトリの内容に読み取りアクセス
 
 jobs:
   fetch-and-upload:
     runs-on: ubuntu-latest
 
     env:
-      GCP_PROJECT_ID: miurak
-      BQ_DATASET: test
-      BQ_TABLE: git_audit2
+      GCP_PROJECT_ID: miurak  # GCPプロジェクトID
+      BQ_DATASET: test  # BigQueryデータセット名
+      BQ_TABLE: git_audit2  # BigQueryテーブル名
 
     steps:
-      - uses: actions/checkout@v4  
+      # リポジトリの内容をチェックアウト
+      - uses: actions/checkout@v4
 
-      - id: 'auth'
-        uses: 'google-github-actions/auth@v2'
+      # Google Cloud認証設定（Workload Identity Federation使用）
+      - id: auth
+        uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: 'projects/55684806562/locations/global/workloadIdentityPools/gha-pool-git-export/providers/github'
           service_account: 'git-audit-gha-sa@miurak.iam.gserviceaccount.com'
 
+      # 古い仮想環境の削除
       - name: Clear old virtual environment
         run: |
           rm -rf venv
 
+      # Python環境のセットアップ
       - name: Set up Python environment
         run: |
           python3 -m venv venv
           . venv/bin/activate
           pip install --upgrade pip
-          pip install google-cloud-bigquery requests PyJWT
+          pip install google-cloud-bigquery requests pyjwt
 
+      # JWTトークンを生成して保存
       - name: Generate JWT Token
         run: |
           . venv/bin/activate
           python3 app/generate_jwt.py > jwt_token.txt
 
-      - name: Display JWT Token for Debugging
+      # JWTトークンを使ってGitHubの監査ログを取得
+      - name: Fetch audit logs from GitHub
+        env:
+          JWT_TOKEN: ${{ secrets.JWT_TOKEN }}
+          APP_INSTALLATION_ID: ${{ secrets.APP_INSTALLATION_ID }}
         run: |
-          cat jwt_token.txt
+          . venv/bin/activate
+          current_time=$(date --utc --iso-8601=seconds)
+          echo "$current_time" > artifacts/last_run_timestamp.txt
 
-      - name: Save Private Key to File (Optional Debugging)
+          jwt=$(cat jwt_token.txt)
+
+          response=$(curl -H "Authorization: Bearer $jwt" \
+                        -H "Accept: application/vnd.github.v3+json" \
+                        "https://api.github.com/app/installations/${APP_INSTALLATION_ID}/access_tokens")
+
+          echo "$response" > access_token.json
+          token=$(jq -r '.token' access_token.json)
+
+          # 監査ログの取得
+          audit_logs=$(curl -H "Authorization: token $token" \
+                            -H "Accept: application/vnd.github.v3+json" \
+                            "https://api.github.com/orgs/miurak-test/audit-log")
+
+          mkdir -p app
+          echo "$audit_logs" > app/audit_logs.json
+
+      # 監査ログをBigQueryにアップロード
+      - name: Upload logs to BigQuery
         run: |
-          echo "${{ secrets.APP_PRIVATE_KEY }}" > app/private-key.pem
+          . venv/bin/activate
+          python3 app/script2.py
