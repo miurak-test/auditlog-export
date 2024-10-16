@@ -22,10 +22,10 @@ jobs:
 
       - name: Set up Python environment
         run: |
-          python3 -m venv venv
-          . venv/bin/activate
-          pip install --upgrade pip
-          pip install requests cryptography google-cloud-bigquery
+          python3 -m venv venv  # 仮想環境の作成
+          . venv/bin/activate   # 仮想環境を有効化
+          pip install --upgrade pip  # pipを最新に
+          pip install google-cloud-bigquery requests PyJWT cryptography  # 必要な依存関係をインストール
 
       - name: Run script with GitHub App authentication and upload to BigQuery
         env:
@@ -33,5 +33,5 @@ jobs:
           APP_INSTALLATION_ID: ${{ secrets.APP_INSTALLATION_ID }}
           APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
         run: |
-          . venv/bin/activate
-          python app/script2.py
+          . venv/bin/activate  # 仮想環境を再度有効化
+          python app/script2.py  # スクリプトを実行
