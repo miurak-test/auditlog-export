@@ -6,23 +6,21 @@ on:
   workflow_dispatch:  # 手動実行も可能に
 
 permissions:
-  id-token: write  # IDトークンの書き込み権限
-  contents: read   # リポジトリの内容読み取り
+  id-token: write
+  contents: read
 
 jobs:
   fetch-and-upload:
-    runs-on: ubuntu-latest  # 最新のUbuntu環境で実行
+    runs-on: ubuntu-latest
 
     env:
-      GCP_PROJECT_ID: miurak  # GCPプロジェクトID
-      BQ_DATASET: test         # BigQueryデータセット名
-      BQ_TABLE: git_audit2     # BigQueryテーブル名
+      GCP_PROJECT_ID: miurak
+      BQ_DATASET: test
+      BQ_TABLE: git_audit2
 
     steps:
-      # リポジトリの内容をチェックアウトする（ソースコードを取得）
       - uses: actions/checkout@v4
 
-      # Google Cloudに認証する（Workload Identity Federationを使用）
       - id: 'auth'
         uses: 'google-github-actions/auth@v2'
         with:
@@ -31,18 +29,16 @@ jobs:
           create_credentials_file: true
           export_environment_variables: true
 
-      # 古い仮想環境を削除
       - name: Clear old virtual environment
         run: |
           rm -rf venv
 
-      # 仮想環境のセットアップと依存パッケージのインストール
       - name: Set up Python environment
         run: |
-          python3 -m venv venv  # 仮想環境を作成
-          . venv/bin/activate  # 仮想環境を有効化
-          pip install --upgrade pip  # pipを最新にアップデート
-          pip install google-cloud-bigquery requests PyJWT  # 必要なライブラリをインストール
+          python3 -m venv venv
+          . venv/bin/activate
+          pip install --upgrade pip
+          pip install google-cloud-bigquery requests PyJWT
 
       # GitHub Appsトークンを生成
       - name: Generate GitHub Apps token
@@ -57,7 +53,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.generate.outputs.token }}
         run: |
-          . venv/bin/activate  # 仮想環境を有効化
+          . venv/bin/activate
           response=$(curl -H "Authorization: Bearer $GITHUB_TOKEN" \
                         -H "Accept: application/vnd.github.v3+json" \
                         "https://api.github.com/orgs/miurak-test/audit-log")
@@ -66,5 +62,5 @@ jobs:
       # 監査ログをBigQueryにアップロード
       - name: Upload logs to BigQuery
         run: |
-          . venv/bin/activate  # 仮想環境を有効化
+          . venv/bin/activate
           python3 app/script2.py
