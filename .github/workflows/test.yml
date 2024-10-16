@@ -6,8 +6,7 @@ on:
   workflow_dispatch:  # 手動実行も可能に
 
 permissions:
-  id-token: write  # Google Cloudの認証用トークンの発行を許可
-  contents: read   # リポジトリの内容に読み取りアクセスを付与
+  contents: write  # リポジトリのコンテンツへの書き込み権限
 
 jobs:
   fetch-and-upload:
@@ -16,7 +15,7 @@ jobs:
     env:
       GCP_PROJECT_ID: miurak  # GCPプロジェクトID
       BQ_DATASET: test         # BigQueryデータセット名
-      BQ_TABLE: git_audit2     # BigQueryテーブル名
+      BQ_TABLE: git_audit2      # BigQueryテーブル名
 
     steps:
       # リポジトリの内容をチェックアウトする（ソースコードを取得）
@@ -24,48 +23,47 @@ jobs:
 
       # Google Cloudに認証するための設定を実行（Workload Identity Federationを使用）
       - id: 'auth'
-        uses: 'google-github-actions/auth@v2'  # Node.js 20対応の最新バージョンを使用
+        uses: 'google-github-actions/auth@v2'  # Node.js 20対応の最新バージョン
         with:
           workload_identity_provider: 'projects/55684806562/locations/global/workloadIdentityPools/gha-pool-git-export/providers/github'
           service_account: 'git-audit-gha-sa@miurak.iam.gserviceaccount.com'  # 使用するサービスアカウント
 
-      # 古い仮想環境（venv）が存在する場合は削除
-      - name: Clear old virtual environment
-        run: |
-          rm -rf venv
+      # GitHub Appsトークンを生成
+      - name: Generate GitHub Apps token
+        id: generate
+        uses: tibdex/github-app-token@v1
+        with:
+          app_id: ${{ secrets.APP_ID }}  # App IDをSecretsから取得
+          private_key: ${{ secrets.APP_PRIVATE_KEY }}  # 秘密鍵を取得
 
-      # Pythonの仮想環境をセットアップし、必要なライブラリをインストール
+      # Python環境をセットアップ
       - name: Set up Python environment
         run: |
           python3 -m venv venv  # 仮想環境を作成
           . venv/bin/activate  # 仮想環境を有効化
-          pip install --upgrade pip  # pipを最新バージョンに更新
-          pip install google-cloud-bigquery requests pyjwt  # 必要なライブラリをインストール
+          pip install --upgrade pip  # pipを最新に更新
+          pip install google-cloud-bigquery requests PyJWT  # 必要なライブラリをインストール
 
-      # JWTトークンを生成してファイルに保存
-      - name: Generate JWT Token
-        run: |
-          . venv/bin/activate  # 仮想環境を有効化
-          python3 app/generate_jwt.py > jwt_token.txt  # JWTトークン生成
-
-      # GitHub APIを使用して監査ログを取得し、次回の実行に向けてタイムスタンプを更新
+      # GitHub APIから監査ログを取得
       - name: Fetch audit logs from GitHub
         env:
-          JWT_TOKEN: ${{ secrets.JWT_TOKEN }}  # JWTトークンを使用
+          GITHUB_TOKEN: ${{ steps.generate.outputs.token }}  # 生成したトークンを使用
         run: |
           . venv/bin/activate  # 仮想環境を有効化
           current_time=$(date --utc --iso-8601=seconds)  # 現在のUTC時刻を取得
-          echo "$current_time" > artifacts/last_run_timestamp.txt  # 新しいタイムスタンプを保存
+          echo "$current_time" > artifacts/last_run_timestamp.txt  # タイムスタンプを保存
 
           # GitHub APIから監査ログを取得
-          response=$(curl -H "Authorization: Bearer $(cat jwt_token.txt)" \
+          response=$(curl -H "Authorization: Bearer $GITHUB_TOKEN" \
                         -H "Accept: application/vnd.github.v3+json" \
-                        "https://api.github.com/app/installations/${{ secrets.APP_INSTALLATION_ID }}/access_tokens")
+                        "https://api.github.com/orgs/miurak-test/audit-log")
 
-          echo "$response" > app/audit_logs.json  # 取得したログを保存
+          # ログを`app`ディレクトリに保存
+          mkdir -p app  # ディレクトリを作成
+          echo "$response" > app/audit_logs.json  # JSONファイルに保存
 
-      # BigQueryにログをアップロードするPythonスクリプトを実行
-      - name: Run script to upload logs to BigQuery
+      # BigQueryにログをアップロード
+      - name: Upload logs to BigQuery
         run: |
           . venv/bin/activate  # 仮想環境を有効化
-          python3 app/script2.py  # Pythonスクリプトを実行
+          python3 app/script2.py  # スクリプトを実行
