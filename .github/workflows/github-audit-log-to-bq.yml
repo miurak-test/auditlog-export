@@ -66,33 +66,42 @@ jobs:
           # ページネーション対応の監査ログ取得処理
           response=$(curl -H "Authorization: token $PERSONAL_ACCESS_TOKEN" \
                         -H "Accept: application/vnd.github.v3+json" \
-                        "https://api.github.com/orgs/miurak-test/audit-log?after=$last_run&per_page=100" \
-                        --include)
+                        --write-out "%{http_code}" \
+                        --silent --output /tmp/response.json \
+                        "https://api.github.com/orgs/miurak-test/audit-log?after=$last_run&per_page=100")
+
+          http_code=$(tail -n1 /tmp/response.json)
+          if [ "$http_code" -ne 200 ]; then
+            echo "Failed to fetch audit logs. HTTP Status Code: $http_code"
+            cat /tmp/response.json  # エラーレスポンスを出力
+            exit 1  # スクリプトをエラー終了
+          fi
 
           # レスポンスの内容を確認
-          echo "First response:"
-          echo "$response"
+          echo "Audit logs successfully fetched:"
+          cat /tmp/response.json
 
           # ページネーションで次のページがあるか確認
-          echo "$response" > app/audit_logs.json
-          next_url=$(echo "$response" | grep -i '^link:' | sed -n 's/.*<\(.*\)>; rel="next".*/\1/p')
+          mv /tmp/response.json app/audit_logs.json
+          next_url=$(grep -i '^link:' /tmp/response.json | sed -n 's/.*<\(.*\)>; rel="next".*/\1/p')
 
           # 次のページがある限りループして取得
           while [[ ! -z "$next_url" ]]; do
             next_response=$(curl -H "Authorization: token $PERSONAL_ACCESS_TOKEN" \
                                -H "Accept: application/vnd.github.v3+json" \
                                "$next_url" \
-                               --include)
+                               --silent --output /tmp/next_response.json)
 
             echo "Next response:"
-            echo "$next_response"
+            cat /tmp/next_response.json
 
-            echo "$next_response" >> app/audit_logs.json  # 次のページの結果を追記
-            next_url=$(echo "$next_response" | grep -i '^link:' | sed -n 's/.*<\(.*\)>; rel="next".*/\1/p')
+            cat /tmp/next_response.json >> app/audit_logs.json  # 次のページの結果を追記
+            next_url=$(grep -i '^link:' /tmp/next_response.json | sed -n 's/.*<\(.*\)>; rel="next".*/\1/p')
           done
 
-      # 更新されたタイムスタンプをアーティファクトとしてアップロード
+      # 更新されたタイムスタンプをアーティファクトとしてアップロード（成功時のみ実行）
       - name: Upload new timestamp artifact
+        if: success()  # 成功時のみ実行
         uses: actions/upload-artifact@v4  # 最新バージョンを使用
         with:
           name: last_run_timestamp  # アーティファクトの名前
