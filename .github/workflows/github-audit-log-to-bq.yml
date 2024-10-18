@@ -60,16 +60,16 @@ jobs:
 
           while [[ ! -z "$next_url" ]]; do
             echo "Fetching logs from: $next_url"
-            response=$(curl -H "Authorization: token $PERSONAL_ACCESS_TOKEN" \
-                            -H "Accept: application/vnd.github.v3+json" \
-                            -D - "$next_url" -o /tmp/response.json)
+            response=$(curl -i -H "Authorization: token $PERSONAL_ACCESS_TOKEN" \
+                             -H "Accept: application/vnd.github.v3+json" \
+                             "$next_url")
 
-            # ページ分割のリンク情報を取得
-            next_url=$(grep -i '^link:' /tmp/response.json | sed -n 's/.*<\(.*\)>; rel="next".*/\1/p')
+            # ログデータを抽出してファイルに保存
+            echo "$response" | sed -n '/^\[/{x;p;d;}; x' | jq -c '.[]' >> app/audit_logs.json
 
-            # ログデータを結合
-            jq -c '.[]' /tmp/response.json >> app/audit_logs.json
-
+            # ページネーションのためのリンクを取得
+            next_url=$(echo "$response" | grep -i '^link:' | sed -n 's/.*<\(.*\)>; rel="next".*/\1/p')
+            sleep 2  # レート制限に考慮して少し待機
           done
 
       - name: Upload new timestamp artifact
