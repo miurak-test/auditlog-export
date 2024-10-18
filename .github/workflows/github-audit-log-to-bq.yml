@@ -1,8 +1,6 @@
 name: Fetch and Upload GitHub Audit Logs to BigQuery
 
 on:
-  schedule:
-    - cron: '0 0 * * *'  # 毎日午前0時に実行
   workflow_dispatch:  # 手動実行も可能に
 
 permissions:
