@@ -1,6 +1,8 @@
 name: Fetch and Upload GitHub Audit Logs to BigQuery
 
 on:
+  schedule:
+    - cron: '0 0 * * *'  # 毎日午前0時に実行
   workflow_dispatch:  # 手動実行も可能に
 
 permissions:
@@ -17,30 +19,25 @@ jobs:
       BQ_TABLE: git_audit      # BigQueryテーブル名
 
     steps:
-      # リポジトリの内容をチェックアウトする（ソースコードを取得）
       - uses: actions/checkout@v4  # 最新バージョンを使用
 
-      # Google Cloudに認証するための設定を実行（Workload Identity Federationを使用）
       - id: 'auth'
         uses: 'google-github-actions/auth@v2'  # Node.js 20対応の最新バージョンを使用
         with:
           workload_identity_provider: 'projects/55684806562/locations/global/workloadIdentityPools/gha-pool-git-export/providers/github'
           service_account: 'git-audit-gha-sa@miurak.iam.gserviceaccount.com'  # 使用するサービスアカウント
 
-      # 古い仮想環境（venv）が存在する場合は削除
       - name: Clear old virtual environment
         run: |
           rm -rf venv
 
-      # Pythonの仮想環境をセットアップし、必要なライブラリをインストール
       - name: Set up Python environment
         run: |
           python3 -m venv venv  # 仮想環境を作成
           . venv/bin/activate  # 仮想環境を有効化
           pip install --upgrade pip  # pipを最新バージョンに更新
-          pip install google-cloud-bigquery requests  # 必要なライブラリをインストール
+          pip install google-cloud-bigquery  # 必要なライブラリをインストール
 
-      # 前回の実行時刻を示すタイムスタンプをダウンロード
       - name: Download previous timestamp artifact
         id: download-timestamp
         run: |
@@ -48,14 +45,13 @@ jobs:
           # タイムスタンプのアーティファクトをダウンロード。なければ1970年1月1日に設定
           gh run download --name last_run_timestamp --dir artifacts || echo "1970-01-01T00:00:00Z" > artifacts/last_run_timestamp.txt
 
-      # 前回実行時のタイムスタンプを読み込み、変数に格納
       - name: Read previous timestamp
         run: |
           last_run=$(cat artifacts/last_run_timestamp.txt)
-          echo "Last fetch timestamp: $last_run"  # 読み込んだタイムスタンプを出力
+          echo "Last fetch timestamp: $last_run"
 
-      # GitHubの監査ログを取得し、次回の実行に向けてタイムスタンプを更新
-      - name: Fetch audit logs from GitHub
+      # GitHubの監査ログを取得し、ページネーションを利用してすべてのイベントを取得
+      - name: Fetch all audit logs from GitHub
         env:
           PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}  # GitHubのアクセストークン
         run: |
@@ -63,23 +59,33 @@ jobs:
           current_time=$(date --utc --iso-8601=seconds)  # 現在のUTC時刻を取得
           echo "$current_time" > artifacts/last_run_timestamp.txt  # 新しいタイムスタンプを保存
 
-          # GitHub APIを使用して監査ログを取得（前回実行後のログを取得）
+          # ページネーション対応の監査ログ取得処理
           response=$(curl -H "Authorization: token $PERSONAL_ACCESS_TOKEN" \
                         -H "Accept: application/vnd.github.v3+json" \
-                        "https://api.github.com/orgs/miurak-test/audit-log?after=$last_run")
+                        "https://api.github.com/orgs/miurak-test/audit-log?after=$last_run&per_page=100" \
+                        --include)
 
-          # 取得した監査ログを`app`ディレクトリに保存
-          mkdir -p app  # ディレクトリを作成
-          echo "$response" > app/audit_logs.json  # ログをJSONファイルに保存
+          # ページネーションで次のページがあるか確認
+          echo "$response" > app/audit_logs.json
+          next_url=$(echo "$response" | grep -i '^link:' | sed -n 's/.*<\(.*\)>; rel="next".*/\1/p')
 
-      # 更新されたタイムスタンプをアーティファクトとしてアップロード
+          # 次のページがある限りループして取得
+          while [[ ! -z "$next_url" ]]; do
+            next_response=$(curl -H "Authorization: token $PERSONAL_ACCESS_TOKEN" \
+                               -H "Accept: application/vnd.github.v3+json" \
+                               "$next_url" \
+                               --include)
+
+            echo "$next_response" >> app/audit_logs.json  # 次のページの結果を追記
+            next_url=$(echo "$next_response" | grep -i '^link:' | sed -n 's/.*<\(.*\)>; rel="next".*/\1/p')
+          done
+
       - name: Upload new timestamp artifact
         uses: actions/upload-artifact@v4  # 最新バージョンを使用
         with:
           name: last_run_timestamp  # アーティファクトの名前
           path: artifacts/last_run_timestamp.txt  # 保存するファイルのパス
 
-      # Pythonスクリプトを実行し、監査ログをBigQueryにアップロード
       - name: Run script to upload logs to BigQuery
         run: |
           . venv/bin/activate  # 仮想環境を有効化
