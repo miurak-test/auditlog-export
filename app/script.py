@@ -59,7 +59,7 @@ def load_logs(file_path):
     """
     try:
         with open(file_path, "r") as f:  # ファイルを読み込みモードで開く
-            logs = json.load(f)  # JSON形式のデータをPythonオブジェクトに変換
+            logs = [json.loads(line) for line in f]  # JSONデータを読み込む
         logging.info(f"Loaded {len(logs)} logs from {file_path}.")  # 読み込んだ件数をログ出力
         return logs  # 読み込んだデータを返す
     except (FileNotFoundError, json.JSONDecodeError) as e:  # ファイルがない、またはJSONエラーの場合

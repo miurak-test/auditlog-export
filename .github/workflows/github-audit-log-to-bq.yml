@@ -54,7 +54,7 @@ jobs:
           last_run=$(cat artifacts/last_run_timestamp.txt)
           echo "Last fetch timestamp: $last_run"  # 読み込んだタイムスタンプを出力
 
-      # GitHubの監査ログを取得し、ページネーションを利用してすべてのイベントを取得
+      # GitHubの監査ログを取得し、次回の実行に向けてタイムスタンプを更新
       - name: Fetch all audit logs from GitHub
         env:
           PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}  # GitHubのアクセストークン
@@ -63,40 +63,29 @@ jobs:
           current_time=$(date --utc --iso-8601=seconds)  # 現在のUTC時刻を取得
           echo "$current_time" > artifacts/last_run_timestamp.txt  # 新しいタイムスタンプを保存
 
-          # ページネーション対応の監査ログ取得処理
-          response=$(curl -H "Authorization: token $PERSONAL_ACCESS_TOKEN" \
-                        -H "Accept: application/vnd.github.v3+json" \
-                        --write-out "%{http_code}" \
-                        --silent --output /tmp/response.json \
-                        "https://api.github.com/orgs/miurak-test/audit-log?after=$last_run&per_page=100")
+          # 監査ログの取得処理（ページネーション対応）
+          next_url="https://api.github.com/orgs/miurak-test/audit-log?after=$last_run&per_page=100"
+          > app/audit_logs.json  # 取得したログを初期化
 
-          http_code=$(tail -n1 /tmp/response.json)
-          if [ "$http_code" -ne 200 ]; then
-            echo "Failed to fetch audit logs. HTTP Status Code: $http_code"
-            cat /tmp/response.json  # エラーレスポンスを出力
-            exit 1  # スクリプトをエラー終了
-          fi
-
-          # レスポンスの内容を確認
-          echo "Audit logs successfully fetched:"
-          cat /tmp/response.json
-
-          # ページネーションで次のページがあるか確認
-          mv /tmp/response.json app/audit_logs.json
-          next_url=$(grep -i '^link:' /tmp/response.json | sed -n 's/.*<\(.*\)>; rel="next".*/\1/p')
-
-          # 次のページがある限りループして取得
           while [[ ! -z "$next_url" ]]; do
-            next_response=$(curl -H "Authorization: token $PERSONAL_ACCESS_TOKEN" \
-                               -H "Accept: application/vnd.github.v3+json" \
-                               "$next_url" \
-                               --silent --output /tmp/next_response.json)
+            echo "Fetching logs from: $next_url"
+            response=$(curl -H "Authorization: token $PERSONAL_ACCESS_TOKEN" \
+                            -H "Accept: application/vnd.github.v3+json" \
+                            -sSL --write-out "%{http_code}" \
+                            --output /tmp/response.json \
+                            "$next_url")
 
-            echo "Next response:"
-            cat /tmp/next_response.json
+            if [[ "$response" -ne 200 ]]; then
+              echo "Failed to fetch audit logs. HTTP Status Code: $response"
+              cat /tmp/response.json  # エラーレスポンスを出力
+              exit 1  # スクリプトをエラー終了
+            fi
 
-            cat /tmp/next_response.json >> app/audit_logs.json  # 次のページの結果を追記
-            next_url=$(grep -i '^link:' /tmp/next_response.json | sed -n 's/.*<\(.*\)>; rel="next".*/\1/p')
+            # 取得したレスポンスを結合
+            jq -c '.[]' /tmp/response.json >> app/audit_logs.json
+
+            # 次のページのURLがあるか確認
+            next_url=$(grep -i '^link:' /tmp/response.json | sed -n 's/.*<\(.*\)>; rel="next".*/\1/p')
           done
 
       # 更新されたタイムスタンプをアーティファクトとしてアップロード（成功時のみ実行）
