@@ -64,8 +64,8 @@ jobs:
                              -H "Accept: application/vnd.github.v3+json" \
                              "$next_url")
 
-            # ログデータを抽出してファイルに保存
-            echo "$response" | sed -n '/^\[/{x;p;d;}; x' | jq -c '.[]' >> app/audit_logs.json
+            # データ部分をjqで正しく抽出し、ファイルに保存
+            echo "$response" | sed -n '/^\[/{x;p;d;}; x' | jq '.[]' >> app/audit_logs.json
 
             # ページネーションのためのリンクを取得
             next_url=$(echo "$response" | grep -i '^link:' | sed -n 's/.*<\(.*\)>; rel="next".*/\1/p')
