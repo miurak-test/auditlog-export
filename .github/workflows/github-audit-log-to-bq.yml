@@ -64,9 +64,10 @@ jobs:
           echo "$current_time" > artifacts/last_run_timestamp.txt  # 新しいタイムスタンプを保存
 
           # ログを初期化
-          echo "" > app/audit_logs.json
+          echo "[]" > app/audit_logs.json
 
           next_url="https://api.github.com/orgs/miurak-test/audit-log?phrase=created:$last_run&per_page=100"
+          total_logs=0  # ログ件数のカウンタを初期化
           while [[ ! -z "$next_url" ]]; do
             echo "Fetching logs from: $next_url"
             response=$(curl -s -H "Authorization: token $PERSONAL_ACCESS_TOKEN" \
@@ -83,6 +84,12 @@ jobs:
               exit 1
             fi
 
+            # ログの件数を確認
+            logs_count=$(echo "$response" | jq '. | length')
+            echo "Fetched $logs_count logs."
+            total_logs=$((total_logs + logs_count))  # ログ件数を累積
+            echo "Total logs so far: $total_logs"
+
             # 取得したレスポンスからログ部分だけを抽出し、追加する
             echo "$response" | jq '.[]' >> app/audit_logs.json
 
@@ -91,6 +98,7 @@ jobs:
 
             sleep 2  # レート制限に配慮して少し待機
           done
+          echo "Finished fetching logs. Total logs fetched: $total_logs"
 
       # 更新されたタイムスタンプをアーティファクトとしてアップロード
       - name: Upload new timestamp artifact
