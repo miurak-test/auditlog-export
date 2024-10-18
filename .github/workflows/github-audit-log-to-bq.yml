@@ -1,117 +1,93 @@
 name: Fetch and Upload GitHub Audit Logs to BigQuery
 
 on:
-  workflow_dispatch:  # 手動実行も可能に
+  workflow_dispatch:
 
 permissions:
-  id-token: write  # Google Cloudの認証用トークンの発行を許可
-  contents: read   # リポジトリの内容に読み取りアクセスを付与
+  id-token: write
+  contents: read
 
 jobs:
   fetch-and-upload:
-    runs-on: ubuntu-latest  # 最新のUbuntu環境で実行
+    runs-on: ubuntu-latest
 
     env:
-      GCP_PROJECT_ID: miurak  # GCPプロジェクトID
-      BQ_DATASET: test         # BigQueryデータセット名
-      BQ_TABLE: git_audit      # BigQueryテーブル名
+      GCP_PROJECT_ID: miurak
+      BQ_DATASET: test
+      BQ_TABLE: git_audit
 
     steps:
-      # リポジトリの内容をチェックアウトする（ソースコードを取得）
-      - uses: actions/checkout@v4  # 最新バージョンを使用
+      - uses: actions/checkout@v4
 
-      # Google Cloudに認証するための設定を実行（Workload Identity Federationを使用）
       - id: 'auth'
         uses: 'google-github-actions/auth@v2'
         with:
           workload_identity_provider: 'projects/55684806562/locations/global/workloadIdentityPools/gha-pool-git-export/providers/github'
-          service_account: 'git-audit-gha-sa@miurak.iam.gserviceaccount.com'  # 使用するサービスアカウント
+          service_account: 'git-audit-gha-sa@miurak.iam.gserviceaccount.com'
 
-      # 古い仮想環境（venv）が存在する場合は削除
       - name: Clear old virtual environment
         run: |
           rm -rf venv
 
-      # Pythonの仮想環境をセットアップし、必要なライブラリをインストール
       - name: Set up Python environment
         run: |
-          python3 -m venv venv  # 仮想環境を作成
-          . venv/bin/activate  # 仮想環境を有効化
-          pip install --upgrade pip  # pipを最新バージョンに更新
-          pip install google-cloud-bigquery requests jq  # 必要なライブラリをインストール
+          python3 -m venv venv
+          . venv/bin/activate
+          pip install --upgrade pip
+          pip install google-cloud-bigquery requests jq
 
-      # 前回の実行時刻を示すタイムスタンプをダウンロード
       - name: Download previous timestamp artifact
         id: download-timestamp
         run: |
-          mkdir -p artifacts  # アーティファクト用のディレクトリを作成
-          # タイムスタンプのアーティファクトをダウンロード。なければ1970年1月1日に設定
+          mkdir -p artifacts
           gh run download --name last_run_timestamp --dir artifacts || echo "1970-01-01T00:00:00Z" > artifacts/last_run_timestamp.txt
 
-      # 前回実行時のタイムスタンプを読み込み、変数に格納
       - name: Read previous timestamp
         run: |
           last_run=$(cat artifacts/last_run_timestamp.txt)
           echo "Last fetch timestamp: $last_run"
 
-      # GitHubの監査ログを取得し、次回の実行に向けてタイムスタンプを更新
       - name: Fetch all audit logs from GitHub
         env:
-          PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}  # GitHubのアクセストークン
+          PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
         run: |
-          . venv/bin/activate  # 仮想環境を有効化
+          . venv/bin/activate
           current_time=$(date --utc --iso-8601=seconds)
-          echo "$current_time" > artifacts/last_run_timestamp.txt  # 新しいタイムスタンプを保存
+          echo "$current_time" > artifacts/last_run_timestamp.txt
 
-          # ログを一時的な配列に保存するための変数
-          logs_array="[]"
+          rm -rf app/audit_logs  # Clear any previous logs
+          mkdir -p app/audit_logs
 
           next_url="https://api.github.com/orgs/miurak-test/audit-log?phrase=created:$last_run&per_page=100"
-          total_logs=0  # ログ件数のカウンタを初期化
+          total_logs=0
+
           while [[ ! -z "$next_url" ]]; do
             echo "Fetching logs from: $next_url"
             response=$(curl -s -H "Authorization: token $PERSONAL_ACCESS_TOKEN" \
                              -H "Accept: application/vnd.github.v3+json" \
                              "$next_url")
 
-            # レスポンスの内容を一時保存してデバッグ用に確認
-            echo "$response" > temp_response.json
-
-            # jqを使ってJSON形式が正しいかチェックし、正しくない場合エラーを出力して終了
-            if ! echo "$response" | jq . > /dev/null 2>&1; then
-              echo "Invalid JSON format in response:"
-              cat temp_response.json
-              exit 1
-            fi
-
-            # ログの件数を確認
             logs_count=$(echo "$response" | jq '. | length')
             echo "Fetched $logs_count logs."
-            total_logs=$((total_logs + logs_count))  # ログ件数を累積
+            total_logs=$((total_logs + logs_count))
             echo "Total logs so far: $total_logs"
 
-            # 取得したレスポンスからログ部分だけを抽出し、既存のログ配列に追加する
-            logs_array=$(echo "$logs_array" | jq --argjson new_logs "$response" '. + $new_logs')
+            echo "$response" > "app/audit_logs/log_$total_logs.json"
 
-            # ページネーションのための次のリンクを取得
             next_url=$(curl -s -I -H "Authorization: token $PERSONAL_ACCESS_TOKEN" "$next_url" | grep -i '^link:' | sed -n 's/.*<\(.*\)>; rel="next".*/\1/p')
 
-            sleep 2  # レート制限に配慮して少し待機
+            sleep 2
           done
 
-          # 完成したログ配列をファイルに保存
-          echo "$logs_array" > app/audit_logs.json
           echo "Finished fetching logs. Total logs fetched: $total_logs"
 
-      # 更新されたタイムスタンプをアーティファクトとしてアップロード
       - name: Upload new timestamp artifact
         uses: actions/upload-artifact@v4
         with:
-          name: last_run_timestamp  # アーティファクトの名前
-          path: artifacts/last_run_timestamp.txt  # 保存するファイルのパス
+          name: last_run_timestamp
+          path: artifacts/last_run_timestamp.txt
 
-      # Pythonスクリプトを実行し、監査ログをBigQueryにアップロード
       - name: Run script to upload logs to BigQuery
         run: |
-          . venv/bin/activate  # 仮想環境を有効化
-          python3 app/script.py  # Pythonスクリプトを実行
+          . venv/bin/activate
+          python3 app/script.py
