@@ -63,8 +63,8 @@ jobs:
           current_time=$(date --utc --iso-8601=seconds)
           echo "$current_time" > artifacts/last_run_timestamp.txt  # 新しいタイムスタンプを保存
 
-          # ログを初期化
-          echo "[]" > app/audit_logs.json
+          # ログを一時的な配列に保存するための変数
+          logs_array="[]"
 
           next_url="https://api.github.com/orgs/miurak-test/audit-log?phrase=created:$last_run&per_page=100"
           total_logs=0  # ログ件数のカウンタを初期化
@@ -90,14 +90,17 @@ jobs:
             total_logs=$((total_logs + logs_count))  # ログ件数を累積
             echo "Total logs so far: $total_logs"
 
-            # 取得したレスポンスからログ部分だけを抽出し、追加する
-            echo "$response" | jq '.[]' >> app/audit_logs.json
+            # 取得したレスポンスからログ部分だけを抽出し、既存のログ配列に追加する
+            logs_array=$(echo "$logs_array" | jq --argjson new_logs "$response" '. + $new_logs')
 
             # ページネーションのための次のリンクを取得
             next_url=$(curl -s -I -H "Authorization: token $PERSONAL_ACCESS_TOKEN" "$next_url" | grep -i '^link:' | sed -n 's/.*<\(.*\)>; rel="next".*/\1/p')
 
             sleep 2  # レート制限に配慮して少し待機
           done
+
+          # 完成したログ配列をファイルに保存
+          echo "$logs_array" > app/audit_logs.json
           echo "Finished fetching logs. Total logs fetched: $total_logs"
 
       # 更新されたタイムスタンプをアーティファクトとしてアップロード
