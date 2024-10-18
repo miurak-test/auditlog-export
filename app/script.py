@@ -31,6 +31,46 @@ def load_logs():
     logging.info(f"Total logs loaded: {len(logs)}")
     return logs
 
+def transform_logs(logs):
+    """
+    監査ログをBigQuery用の形式に変換
+    - 必要なフィールドのみ抽出し、整形する
+    """
+    transformed_logs = []
+    
+    for log in logs:
+        transformed_log = {
+            "timestamp": log.get("@timestamp") / 1000 if log.get("@timestamp") else None,  # UNIXタイムを秒に変換
+            "action": log.get("action"),  # アクション名
+            "actor": log.get("actor"),  # 実行者
+            "repository": log.get("repo"),  # リポジトリ名
+            "org": log.get("org")  # 組織名
+        }
+        transformed_logs.append(transformed_log)
+    
+    return transformed_logs
+
+def insert_rows_with_retry(client, table_ref, rows, retries=5, delay=10):
+    """
+    BigQueryにデータをリトライ付きで挿入
+    - 挿入が失敗した場合、一定時間待機して再試行
+    """
+    for attempt in range(retries):
+        try:
+            logging.info(f"Inserting rows into {table_ref} (Attempt {attempt + 1}/{retries})...")
+            errors = client.insert_rows_json(table_ref, rows)
+            if errors:
+                logging.error(f"Errors occurred during insertion: {errors}")
+                time.sleep(delay)
+            else:
+                logging.info("Data uploaded successfully.")
+                return
+        except GoogleAPIError as e:
+            logging.error(f"Failed to upload data to BigQuery: {e}")
+            time.sleep(delay)
+    logging.error(f"Failed to insert rows into {table_ref} after {retries} attempts.")
+    sys.exit(1)
+
 def main():
     project_id = os.getenv('GCP_PROJECT_ID')
     dataset_id = os.getenv('BQ_DATASET')
